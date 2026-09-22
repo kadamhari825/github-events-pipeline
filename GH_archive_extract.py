@@ -217,6 +217,15 @@ def run_quality_checked_stage(spark, conn):
 #-------------------------------------
 # Transformed
 
+# NOTE: run_transformed_stage processes its whole file batch as a single
+# Spark job (one read, one write). A failure anywhere in that job -- even
+# one caused by a single bad file -- is caught by the except block, which
+# loops over every file_name in the batch and applies retry/FAILED logic
+# to all of them, not just the offending file. Verified via controlled
+# fault injection on 2026-09-22: a simulated exception targeting one file
+# out of three caused all three to retry together and fail together.
+# Tradeoff: fewer, larger Spark jobs vs. per-file failure isolation.
+
 def run_transformed_stage(spark, conn):
     cursor = conn.cursor()
     cursor.execute("SELECT file_name, retry_count FROM file_state WHERE state = 'QUALITY_CHECKED'")
