@@ -23,6 +23,7 @@ os.makedirs(LATE_DIR, exist_ok = True)
 LATE_WINDOW_HOURS = 2
 
 FAKE_NOW = None
+BACKFILL_MODE = False # set True to load an old date on purpose, skips the late-window check
 
 def get_current_time():
     return FAKE_NOW if FAKE_NOW else datetime.now()
@@ -49,7 +50,7 @@ for hour_str in hours_to_download:
         continue
 
     hours_late = (get_current_time() - get_expected_available_time(file_name)).total_seconds() / 3600
-    too_late = hours_late > LATE_WINDOW_HOURS
+    too_late = hours_late > LATE_WINDOW_HOURS and not BACKFILL_MODE
     save_path = late_path if too_late else local_path
 
     print(f"Downloading {url}")
@@ -61,7 +62,7 @@ for hour_str in hours_to_download:
                 f.write(chunk)
         if too_late:
             print(f"{file_name}: {hours_late:.1f}h late, outside the {LATE_WINDOW_HOURS}h window, saved to late_arrivals only")
-        elif hours_late > 0:
+        elif hours_late > 0 and not BACKFILL_MODE:
             shutil.copy2(local_path, late_path)
             print(f"{file_name}: {hours_late:.1f}h late, inside the window, saved to raw and copied to late_arrivals")
         else:
