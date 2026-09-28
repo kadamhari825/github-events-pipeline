@@ -2,9 +2,10 @@ import requests
 import os
 import glob
 import sqlite3
+import shutil
 import time
 from pyspark.sql.functions import lit, coalesce
-from datetime import datetime
+from datetime import datetime, timedelta
 from pyspark.sql.functions import row_number, col, dense_rank
 from pyspark.sql import SparkSession
 from pyspark.sql.window import Window
@@ -15,7 +16,25 @@ date = '2026-08-30'
 hours_to_download = [f"{date}-{h}" for h in range(24)]
 
 RAW_DIR = "/Users/harikadam/gharchive_project/raw"
+
+LATE_DIR = "/Users/harikadam/gharchive_project/late_arrivals"
+os.makedirs(LATE_DIR, exist_ok = True)
+
+LATE_WINDOW_HOURS = 2
+
+FAKE_NOW = None
+
+def get_current_time():
+    return FAKE_NOW if FAKE_NOW else datetime.now()
+
 os.makedirs(RAW_DIR, exist_ok = True)
+
+def get_expected_available_time(file_name):
+    # "2026-08-30-16.json.gz" -> "2026-08-30-16"
+    hour_str = file_name.replace(".json.gz", "")
+    hour_start = datetime.strptime(hour_str, "%Y-%m-%d-%H")
+    # hour 16 covers 16:00 to 16:59, so the file can only exist from 17:00
+    return hour_start + timedelta(hours=1)
 
 BASE_URL = "https://data.gharchive.org"
 
@@ -23,19 +42,30 @@ for hour_str in hours_to_download:
     file_name = f"{hour_str}.json.gz"
     url = f'{BASE_URL}/{file_name}'
     local_path = os.path.join(RAW_DIR, file_name)
+    late_path = os.path.join(LATE_DIR, file_name)
 
-
-    if os.path.exists(local_path):
+    if os.path.exists(local_path) or os.path.exists(late_path):
         print(f"already have {local_path}, skipping")
         continue
+
+    hours_late = (get_current_time() - get_expected_available_time(file_name)).total_seconds() / 3600
+    too_late = hours_late > LATE_WINDOW_HOURS
+    save_path = late_path if too_late else local_path
+
     print(f"Downloading {url}")
     response = requests.get(url, stream = True)
 
     if response.status_code == 200:
-        with open(local_path, 'wb') as f:
+        with open(save_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=1024*1024):
                 f.write(chunk)
-        print(f"saved {file_name}")
+        if too_late:
+            print(f"{file_name}: {hours_late:.1f}h late, outside the {LATE_WINDOW_HOURS}h window, saved to late_arrivals only")
+        elif hours_late > 0:
+            shutil.copy2(local_path, late_path)
+            print(f"{file_name}: {hours_late:.1f}h late, inside the window, saved to raw and copied to late_arrivals")
+        else:
+            print(f"saved {file_name}")
 
     else:
         print(f'failed to download {file_name}:status {response.status_code}')
@@ -407,6 +437,7 @@ print('8. Rabk top 5 event by repo name')
 df5 = df.groupBy("type", "repo.name").count()
 w = Window.partitionBy('type').orderBy(col('count').desc())
 df5.withColumn('rank', row_number().over(w)).filter(col('rank') <=5 ).show(45)
+
 
 
 
