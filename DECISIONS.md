@@ -59,3 +59,13 @@ never touching real pipeline data) with two real fault-injection cases:
   file FAILED, other files in the batch unaffected.
 - Changed actor.id from bigint to string: caught as a wrong type, file
   FAILED, other files unaffected.
+
+## New or unexpected fields in raw data
+
+Decision: a new field appearing in a raw file is logged, never treated as a failure.
+
+Reasoning: adding a field is an additive change and cannot break anything that already works. The transform stage selects only id, type, actor, repo and created_at, so extra columns are dropped before they reach transformed or published. Missing fields and changed types can corrupt downstream data, which is why those fail a file. A new field cannot, so failing on it would make the pipeline brittle every time GitHub adds something.
+
+Current behavior: extra top-level columns (org, payload, public) are logged on success. Only top-level extra columns are logged. New fields nested inside actor or repo are not logged, which is acceptable because nothing downstream reads them.
+
+a downstream step starts reading a field that is not in EXPECTED_SCHEMA. At that point the field should be added to EXPECTED_SCHEMA so it is validated properly.

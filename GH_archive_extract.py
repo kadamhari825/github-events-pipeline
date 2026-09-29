@@ -362,7 +362,7 @@ def run_published_stage(spark, conn):
 
         for file_name in original_candidates:
             cursor.execute(
-                "UPDATE file_state SET state = ?, updated_at = ? WHERE file_name = ?",
+                "UPDATE file_state SET state = ?, retry_count = 0, updated_at = ? WHERE file_name = ?",
                 ('PUBLISHED', datetime.now().isoformat(), file_name)
             )
 
