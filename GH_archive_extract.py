@@ -158,6 +158,16 @@ def handle_stage_failure(cursor, file_name, error_msg, retry_count):
 
 EXPECTED_FIELDS = {'id', 'type', 'actor', 'repo', 'created_at'}
 
+EXPECTED_SCHEMA = {
+    'id': 'string',
+    'type': 'string',
+    'created_at': 'string',
+    'actor.id': 'bigint',
+    'actor.login': 'string',
+    'repo.id': 'bigint',
+    'repo.name': 'string',
+}
+
 def run_schema_validation_stage(spark, conn):
     cursor = conn.cursor()
     cursor.execute("SELECT file_name, retry_count FROM file_state WHERE state = 'DISCOVERED'")
@@ -169,12 +179,28 @@ def run_schema_validation_stage(spark, conn):
         try:
             df = spark.read.json(file_path)
             count = df.count()
-            actual_fields = set(df.columns)
-            missing = EXPECTED_FIELDS - actual_fields
 
-            if missing:
+            actual_fields = set(df.columns)
+            extra = sorted(actual_fields - EXPECTED_FIELDS)
+
+            flat_types = {}
+            for f in df.schema.fields:
+                flat_types[f.name] = f.dataType.simpleString()
+                if f.dataType.typeName() == 'struct':
+                    for inner in f.dataType.fields:
+                        flat_types[f"{f.name}.{inner.name}"] = inner.dataType.simpleString()
+            missing = [k for k in EXPECTED_SCHEMA if k not in flat_types]
+            wrong_type = [f"{k} is {flat_types[k]}, expected {v}" for k, v in EXPECTED_SCHEMA.items() if k in flat_types and flat_types[k] != v]
+
+            if missing or wrong_type:
                 # structural problem, not transient — no point retrying
-                error_msg = f"Missing fields: {sorted(missing)}"
+                problems = []
+                if missing:
+                    problems.append(f"Missing fields: {sorted(missing)}")
+                if wrong_type:
+                    problems.append(f"Wrong types: {wrong_type}")
+                error_msg = "; ".join(problems)
+
                 cursor.execute(
                     "UPDATE file_state SET state = ?, event_count = ?, error_message = ?, updated_at = ? WHERE file_name = ?",
                     ("FAILED", count, error_msg, datetime.now().isoformat(), file_name)
@@ -185,7 +211,7 @@ def run_schema_validation_stage(spark, conn):
                     "UPDATE file_state SET state = ?, event_count = ?, updated_at = ? WHERE file_name = ?",
                     ("SCHEMA_VALIDATED", count, datetime.now().isoformat(), file_name)
                 )
-                print(f"{file_name}: SCHEMA_VALIDATED with {count} events")
+                print(f"{file_name}: SCHEMA_VALIDATED with {count} events | {len(actual_fields)} columns, {len(EXPECTED_FIELDS)} required, extra: {extra}")
 
         except Exception as e:
             # could be transient (disk hiccup, lock) — worth retrying
