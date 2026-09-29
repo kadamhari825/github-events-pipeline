@@ -408,10 +408,21 @@ def report_failed_files(conn):
     print()
 
 conn = sqlite3.connect(DB_PATH)
-run_schema_validation_stage(spark, conn)
-run_quality_checked_stage(spark, conn)
-run_transformed_stage(spark, conn)
-run_published_stage(spark, conn)
+timings = {}
+for stage_name, stage_fn in [
+    ("schema_validation", run_schema_validation_stage),
+    ("quality_checked", run_quality_checked_stage),
+    ("transformed", run_transformed_stage),
+    ("published", run_published_stage),
+]:
+    t0 = time.time()
+    stage_fn(spark, conn)
+    timings[stage_name] = time.time() - t0
+
+print("\n--- Stage timings (seconds) ---")
+for stage_name, secs in timings.items():
+    print(f"  {stage_name}: {secs:.1f}")
+print(f"  total: {sum(timings.values()):.1f}")
 
 report_pipeline_status(conn)
 report_failed_files(conn)
