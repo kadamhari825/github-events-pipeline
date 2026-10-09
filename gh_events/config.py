@@ -3,7 +3,7 @@ import os
 DATE = "2026-08-30"
 BASE_URL = "https://data.gharchive.org"
 
-PROJECT_DIR = "/Users/harikadam/gharchive_project"
+PROJECT_DIR = os.environ.get("GH_PROJECT_DIR", "/Users/harikadam/gharchive_project")
 RAW_DIR = os.path.join(PROJECT_DIR, "raw")
 LATE_DIR = os.path.join(PROJECT_DIR, "late_arrivals")
 DB_DIR = PROJECT_DIR
