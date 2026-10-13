@@ -5,6 +5,12 @@ from gh_events import config
 from gh_events.state_store import handle_stage_failure
 
 
+def compare_schema(flat_types, expected_schema):
+    missing = [k for k in expected_schema if k not in flat_types]
+    wrong_type = [f"{k} is {flat_types[k]}, expected {v}" for k, v in expected_schema.items() if k in flat_types and flat_types[k] != v]
+    return missing, wrong_type
+
+
 def run_schema_validation_stage(spark, conn):
     cursor = conn.cursor()
     cursor.execute("SELECT file_name, retry_count FROM file_state WHERE state = 'DISCOVERED'")
@@ -26,8 +32,7 @@ def run_schema_validation_stage(spark, conn):
                 if f.dataType.typeName() == 'struct':
                     for inner in f.dataType.fields:
                         flat_types[f"{f.name}.{inner.name}"] = inner.dataType.simpleString()
-            missing = [k for k in config.EXPECTED_SCHEMA if k not in flat_types]
-            wrong_type = [f"{k} is {flat_types[k]}, expected {v}" for k, v in config.EXPECTED_SCHEMA.items() if k in flat_types and flat_types[k] != v]
+            missing, wrong_type = compare_schema(flat_types, config.EXPECTED_SCHEMA)
 
             if missing or wrong_type:
                 # structural problem, not transient, so no point retrying
